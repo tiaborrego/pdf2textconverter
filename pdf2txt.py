@@ -52,22 +52,23 @@ def convertMultiple(pdfDir, txtDir):
             textFile.write(text) #write text to text file
             shutil.move(textFilename, txtDir)
             
-def convertAgain(pdfDir, excelDir):
-    if pdfDir == "": pdfDir = os.getcwd() + "\\"
-    for pdf in os.listdir(pdfDir): #iterate through pdfs in pdf directory
-        fileExtension = pdf.split(".")[-1]
-        if fileExtension == "pdf":
-            tables = camelot.read_pdf(pdfFilename)
-            for table in tables:
-                tableFileName = table.to_excel(excelDir + pdf + ".xlsx", index = FALSE)
+#def convertAgain(pdfDir, excelDir):
+ #   if pdfDir == "": pdfDir = os.getcwd() + "\\"
+  #  for pdf in os.listdir(pdfDir): #iterate through pdfs in pdf directory
+   #     fileExtension = pdf.split(".")[-1]
+    #    if fileExtension == "pdf":
+     #       #tables = camelot.read_pdf(pdfFilename)
+      #      tables = wrapper.convert_into_by_batch("/Users/tiaborrego/Desktop/TCM_final/pdfs", output_format = "xlsx", java_options=None,**kwargs)
+       #     for table in tables:
+        #        tableFileName = table.to_excel(excelDir + pdf + ".xlsx", index = FALSE)
             ##tableFilename = excelDir + pdf + ".xlsx"
           ##  tableFile = open(tableFilename, "w")
           ##  tableFile.write(tables)
-            shutil.move(tableFilename, excelDir)
+         #   shutil.move(tableFilename, excelDir) #move files to the excel directory
 
 	#textFile.close
 
 pdfDir = "/Users/tiaborrego/Desktop/TCM_final/pdfs"
 txtDir = "/Users/tiaborrego/Desktop/TCM_final/text"
-excelDir = "/Users/tiaborrego/Desktop/TCM_final/tables"
+#excelDir = "/Users/tiaborrego/Desktop/TCM_final/tables"
 convertMultiple(pdfDir, txtDir)

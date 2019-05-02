@@ -1,0 +1,143 @@
+#!/usr/bin/env jruby -J-Djava.awt.headless=true
+# encoding: utf-8
+
+require 'trollop'
+require_relative '../lib/tabula'
+
+FORMATS = ['CSV', 'TSV', 'HTML', 'JSON']
+
+def parse_pages_arg(pages_arg)
+  if(pages_arg == 'all')
+    return :all
+  end
+
+  ranges = pages_arg.split(',').map(&:strip)
+  pages = []
+  ranges.each do |range|
+    s, e = range.split('-')
+    return nil if (s.nil? && e.nil?) || s !~ /\d+/ || (!e.nil? && e !~ /\d+/)
+    if e.nil?
+      pages << s.to_i
+    else
+      return nil if s.to_i > e.to_i
+      pages += (s.to_i..e.to_i).to_a
+    end
+  end
+  pages.sort.map { |i| i.to_java(:int) }
+end
+
+def parse_command_line
+  opts = Trollop::options do
+    version "tabula #{Tabula::VERSION} (c) 2012-2016 Manuel Aristarán, Jeremy B. Merrill, Mike Tigas and other contributors"
+    banner <<-EOS
+Tabula helps you extract tables from PDFs
+
+Usage:
+       tabula [options] <pdf_file>
+where [options] are:
+EOS
+
+    opt :pages, 'Comma separated list of ranges, or all. Examples: --pages 1-3,5-7, --pages 3 or --pages all. Default is --pages 1', :default => '1', :type => String
+    opt :area, 'Portion of the page to analyze (top,left,bottom,right). Example: --area 269.875,12.75,790.5,561. Default is entire page', :type => String, :default => nil
+    opt :columns, 'X coordinates of column boundaries. Example --columns 10.1,20.2,30.3', :default => nil, :type => String
+    opt :password, 'Password to decrypt document. Default is empty', :default => ''
+    opt :guess, 'Guess the portion of the page to analyze per page.'
+    opt :debug, 'Print detected table areas instead of processing.'
+    opt :format, "Output format (#{FORMATS.join(",")})", :default => 'CSV'
+    opt :outfile, 'Write output to <file> instead of STDOUT', :default => '-'
+    opt :spreadsheet, "Force PDF to be extracted using spreadsheet-style extraction (if there are ruling lines separating each cell, as in a PDF of an Excel spreadsheet)"
+    opt :no_spreadsheet, "Force PDF not to be extracted using spreadsheet-style extraction (if there are ruling lines separating each cell, as in a PDF of an Excel spreadsheet)"
+    opt :silent, 'Suppress all stderr output.'
+    opt :use_line_returns, 'Use embedded line returns in cells. (Only in spreadsheet mode.)'
+  end
+
+  if !opts[:columns].nil?
+    c = opts[:columns].split(',')
+    Trollop::die :columns, "is invalid" unless c.all? { |x| x.strip =~  /(\d+\.?\d*)/ }
+  end
+
+  if !opts[:area].nil?
+    unless opts[:area].split(',').size == 4 \
+      && opts[:area].split(',').all? { |x| x.strip =~ /(\d+\.?\d*)/ }
+      Trollop::die :area, "is invalid"
+    end
+  end
+  Trollop::die :format, "is unknown" unless FORMATS.include?(opts[:format])
+  Trollop::die "need one filename" if ARGV.empty?
+
+  pdf_filename = ARGV.shift
+  Trollop::die 'file does not exist' unless File.exists? pdf_filename
+
+  return opts, pdf_filename
+end
+
+def rulings_from_columns(page, area, vertical_rulings)
+  top = area.nil? ? page.top : area.top
+  vertical_rulings.map do |vr|
+    Tabula::Ruling.new(top, vr, 0, page.height)
+  end
+end
+
+def heuristic_to_decide_whether_to_use_spreadsheet_extraction
+  false #TODO
+end
+
+def main
+  opts, filename = parse_command_line
+
+  area_input = opts[:area].nil? ? nil : opts[:area].split(',').map(&:to_f)
+  vertical_rulings = opts[:columns].nil? ? nil : opts[:columns].split(',').map(&:to_f)
+  out = opts[:outfile] == '-' ? $stdout : File.new(opts[:outfile], 'wb')
+
+  use_spreadsheet_extraction =  if opts[:spreadsheet]
+                                  true
+                                elsif opts[:no_spreadsheet] || opts[:columns] || opts[:area] || opts[:guess]
+                                  false
+                                else
+                                  nil
+                                end
+  use_line_returns = if opts[:use_line_returns]
+				  true
+				else
+				  false
+				end
+
+  extractor = Tabula::Extraction::ObjectExtractor.new(filename, password=opts[:password])
+  extractor.extract(parse_pages_arg(opts[:pages]))
+    .each_with_index do |pdf_page, page_index|
+
+    #do the heuristic here
+    if use_spreadsheet_extraction.nil?
+      use_spreadsheet_extraction = pdf_page.is_tabular?
+      #TODO: tell the user what we're doing, so they can force the other way.
+      STDERR.puts "Using #{use_spreadsheet_extraction ? "spreadsheet": "no_spreadsheet"} extraction method.\n" +
+            "If the output looks wrong, re-run tabula with the #{use_spreadsheet_extraction ? "--no-spreadsheet": "--spreadsheet"} switch." unless opts[:silent]
+    end
+
+    if use_spreadsheet_extraction
+      if opts[:debug]
+        pdf_page.spreadsheets.each do |spreadsheet|
+          STDERR.puts "Page #{pdf_page.number(:one_indexed)}: #{spreadsheet}"
+        end
+      end
+      tables = pdf_page.spreadsheets(:use_line_returns=> use_line_returns)
+    else
+      STDERR.puts "Page #{pdf_page.number(:one_indexed)}: #{page_area.to_s}" if opts[:debug]
+      if opts[:guess]
+        page_areas = pdf_page.spreadsheets.map{|rect| pdf_page.get_area(rect)}
+      elsif area_input
+        page_areas = [pdf_page.get_area(*area_input)]
+      else
+        page_areas = [pdf_page]
+      end
+      tables = page_areas.map{|page_area| page_area.get_table(vertical_rulings.nil? ? {} : { :vertical_rulings => rulings_from_columns(pdf_page, page_area, vertical_rulings) })}
+    end
+
+    tables.each do |table|
+      out << table.send("to_#{opts[:format].downcase}".to_sym)
+    end
+  end
+  out.close
+end
+
+main

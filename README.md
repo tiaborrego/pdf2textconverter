@@ -1,5 +1,6 @@
 ## pdf2textconverter
 ==============================
+
 Coverts pdfs and pdf images to word documents
 
 create two folders, one for pdfs and one for text files
